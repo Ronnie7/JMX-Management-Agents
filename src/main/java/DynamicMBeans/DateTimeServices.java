@@ -1,9 +1,11 @@
 package DynamicMBeans;
 
 import javax.management.Attribute;
+import javax.management.AttributeChangeNotification;
 import javax.management.AttributeList;
 import javax.management.AttributeNotFoundException;
 import javax.management.InvalidAttributeValueException;
+import javax.management.ListenerNotFoundException;
 import javax.management.MBeanAttributeInfo;
 import javax.management.MBeanConstructorInfo;
 import javax.management.MBeanException;
@@ -11,6 +13,10 @@ import javax.management.MBeanInfo;
 import javax.management.MBeanNotificationInfo;
 import javax.management.MBeanOperationInfo;
 import javax.management.MBeanParameterInfo;
+import javax.management.Notification;
+import javax.management.NotificationBroadcasterSupport;
+import javax.management.NotificationFilter;
+import javax.management.NotificationListener;
 import javax.management.ReflectionException;
 import javax.management.RuntimeOperationsException;
 import java.lang.reflect.Constructor;
@@ -23,7 +29,7 @@ import java.util.Calendar;
 public class DateTimeServices implements DateTimeServicesMBean {
 
     public static final boolean READABLE = true;
-    public static final boolean WRITEABLE = true;
+    public static final boolean WRITABLE = true;
     public static final boolean ISIS = true;
 
     private String userConfiguredDate = null;
@@ -32,9 +38,18 @@ public class DateTimeServices implements DateTimeServicesMBean {
     private MBeanConstructorInfo[] constructorInfos = new MBeanConstructorInfo[1];
     private MBeanOperationInfo[] operationInfos = new MBeanOperationInfo[2];
     private MBeanInfo mBeanInfo = null;
+    private MBeanNotificationInfo[] notificationInfos = null;
+    private NotificationBroadcasterSupport broadcasterSupport = new NotificationBroadcasterSupport();
+    private long notificationSequence = 0;
 
     public void setDate(String newDate) {
+        String oldValue = getDate();
+        String attrType = String.class.getName();
+        String attrName = "Date";
+
         userConfiguredDate = newDate;
+        AttributeChangeNotification notif = new AttributeChangeNotification(this, ++notificationSequence, System.currentTimeMillis(), "date has been changed.", attrName, attrType, oldValue, newDate);
+        broadcasterSupport.sendNotification(notif);
     }
 
     public String getDate() {
@@ -45,7 +60,17 @@ public class DateTimeServices implements DateTimeServicesMBean {
     }
 
     public void setTime(String newTime) {
+        String oldValue = getTime();
+        String attrType = String.class.getName();
+        String attrName = "Time";
         userConfiguredTime = newTime;
+
+        AttributeChangeNotification notif = new AttributeChangeNotification(this, ++notificationSequence,
+                System.currentTimeMillis(), "Time has been changed.",
+                attrName,
+                attrType,
+                oldValue,
+                newTime);
     }
 
     public String getTime() {
@@ -56,11 +81,20 @@ public class DateTimeServices implements DateTimeServicesMBean {
     }
 
     public void start() {
-
+        Notification notification = new Notification("services.datetime.start",
+                this,
+                ++notificationSequence,
+                "DateTime service start.");
+        broadcasterSupport.sendNotification(notification);
     }
 
     public void stop() {
-
+        Notification notification = new Notification(
+                "services.datetime.stop",
+                this,
+                ++notificationSequence,
+                "DateTime service stopped.");
+        broadcasterSupport.sendNotification(notification);
     }
 
     public Object getAttribute(String attributeName) throws AttributeNotFoundException, MBeanException, ReflectionException {
@@ -72,7 +106,7 @@ public class DateTimeServices implements DateTimeServicesMBean {
             return getDate();
         }
         if (attributeName.equals("Time")) {
-            getTime();
+            return getTime();
         }
         throw (new AttributeNotFoundException("Invalid Attribute: " + attributeName));
     }
@@ -126,6 +160,7 @@ public class DateTimeServices implements DateTimeServicesMBean {
             } catch (AttributeNotFoundException e) {
                 e.printStackTrace();
             } catch (ReflectionException e) {
+
                 e.printStackTrace();
             } catch (MBeanException e) {
                 e.printStackTrace();
@@ -195,22 +230,63 @@ public class DateTimeServices implements DateTimeServicesMBean {
         if (mBeanInfo != null)
             return mBeanInfo;
         attributeInfos[0] = new MBeanAttributeInfo("Date",
-                                                    String.class.getName(),
-                                                    "The Current Date",
-                                                    READABLE, WRITEABLE, !ISIS);
+                String.class.getName(),
+                "The Current Date",
+                READABLE, WRITABLE, !ISIS);
         attributeInfos[1] = new MBeanAttributeInfo("Time",
-                                                    String.class.getName(),
-                                                    "The Current time",
-                                                    READABLE, WRITEABLE, !ISIS);
-        Constructor [] constructors = this.getClass().getConstructors();
-        constructorInfos[0] = new MBeanConstructorInfo("Construct a date time object.",constructors[0]);
+                String.class.getName(),
+                "The Current time",
+                READABLE, WRITABLE, !ISIS);
+        Constructor[] constructors = this.getClass().getConstructors();
+        constructorInfos[0] = new MBeanConstructorInfo("Construct a date time object.", constructors[0]);
 
-        MBeanParameterInfo[] mBeanParameterInfos =null;
-        operationInfos[0] = new MBeanOperationInfo("start","Starts the DateTime service",mBeanParameterInfos,"void",MBeanOperationInfo.ACTION);
-        operationInfos[1] = new MBeanOperationInfo("stop","Stops the DateTime service",mBeanParameterInfos,"void",MBeanOperationInfo.ACTION);
+        MBeanParameterInfo[] mBeanParameterInfo = null;
+        operationInfos[0] = new MBeanOperationInfo("start", "Starts the DateTime service", mBeanParameterInfo, "void", MBeanOperationInfo.ACTION);
+        operationInfos[1] = new MBeanOperationInfo("stop", "Stops the DateTime service", mBeanParameterInfo, "void", MBeanOperationInfo.ACTION);
 
-        mBeanInfo = new MBeanInfo(this.getClass().getName(),"DateTime service MBean",attributeInfos,constructorInfos,operationInfos,new MBeanNotificationInfo[0]);
+        mBeanInfo = new MBeanInfo(
+                this.getClass().getName(),
+                "DateTime service MBean",
+                attributeInfos,
+                constructorInfos,
+                operationInfos,
+                getNotificationInfo()
+        );
 
         return mBeanInfo;
     }
+
+    private MBeanNotificationInfo[] getNotificationInfo() {
+        if (notificationInfos != null)
+            return notificationInfos;
+
+        notificationInfos = new MBeanNotificationInfo[]{
+                new MBeanNotificationInfo(new String[]{"service.user.start"},
+                        Notification.class.getName(),
+                        "DateTime service start."
+                ),
+                new MBeanNotificationInfo(new String[]{"service.user.stop"},
+                        Notification.class.getName(),
+                        "DateTime service stop."
+                ),
+                new MBeanNotificationInfo(new String[]{AttributeChangeNotification.ATTRIBUTE_CHANGE},
+                        AttributeChangeNotification.class.getName(),
+                        "DateTime service attribute changes."
+                )
+        };
+        return notificationInfos;
+    }
+
+    public void addNotificationListener(NotificationListener listener, NotificationFilter filter, Object handback) {
+        broadcasterSupport.addNotificationListener(listener, filter, handback);
+    }
+
+    public void removeNotificationListener(NotificationListener listener) throws ListenerNotFoundException {
+        broadcasterSupport.removeNotificationListener(listener);
+    }
+
+    public void removeNotificationListener(NotificationListener listener, NotificationFilter filter, Object handback) throws ListenerNotFoundException {
+        broadcasterSupport.removeNotificationListener(listener, filter, handback);
+    }
+
 }
